@@ -44,14 +44,24 @@ foreach (array('images', 'cbrs') as $directory) {
   }
 }
 
-// Load the HathiTrust metadata for the passed ID. None of this data is
-// really important, save for "total_items" which tells us how many pages
-// (images) are in this document. This is useful because HathiTrust appears
-// to return HTTP status code 503 for missing images AND server errors, so
-// just incrementing a page number until we get 404s doesn't work.
-$hathitrust_id_meta_url   = "https://babel.hathitrust.org/cgi/imgsrv/meta?id=$hathitrust_id";
-$hathitrust_id_meta_data  = json_decode(file_get_contents($hathitrust_id_meta_url));
+// Config for all cURL requests.
+$curl_default_options = array(
+  CURLOPT_AUTOREFERER     => TRUE,
+  CURLOPT_FOLLOWLOCATION  => TRUE,
+  CURLOPT_RETURNTRANSFER  => TRUE,
+  CURLOPT_USERAGENT       => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.94 Safari/537.36',
+);
+
+// Load the HathiTrust metadata for the passed ID. The most important bit of
+// this data is "total_items", which tells us how many pages (images) are in
+// this document. This is useful because HathiTrust appears to return HTTP
+// status code 503 for missing images AND server errors, so just incrementing
+// a page number until we get 404s doesn't work all too well.
+$ch = curl_init("https://babel.hathitrust.org/cgi/imgsrv/meta?id=$hathitrust_id");
+curl_setopt_array($ch, $curl_default_options);
+$hathitrust_id_meta_data = json_decode(curl_exec($ch));
 $total_pages = $hathitrust_id_meta_data->total_items;
+curl_close($ch);
 
 print "There are $total_pages pages for HathuTrust ID $hathitrust_id.\n";
 
@@ -74,26 +84,13 @@ for ($current_page = 1; $current_page <= $total_pages; $current_page++) {
     exit("ERROR: Unable to create required $page_filepath file.\n");
   }
 
-  // This is just a normal HTTP GET, and there's nothing really special about
-  // it - it's similar to just accessing the below URL in your browser. We
-  // do fake a Chrome user-agent, and tell cURL to save the data to our
-  // $page_filepath filehandle instead of returning the data to a variable.
-  $ch = curl_init();
-  curl_setopt_array($ch, array(
-    CURLOPT_AUTOREFERER     => TRUE,
-    CURLOPT_FOLLOWLOCATION  => TRUE,
-    CURLOPT_RETURNTRANSFER  => TRUE,
-    CURLOPT_FILE            => $fh,
-
-    // By default, the "width" argument is the current size of your browser
-    // window when you request a HathiTrust document. If you pass in a very
-    // large size, like 10000 pixels, you'll always receive the largest
-    // image scan available for the current page. Unless it's greater than
-    // 10000 pixels wide, but I suspect they're not scanning at that size yet.
-    CURLOPT_URL             => "https://babel.hathitrust.org/cgi/imgsrv/image?id=$hathitrust_id;seq=$current_page;width=10000",
-    CURLOPT_USERAGENT       => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.94 Safari/537.36',
-  ));
-
+  // By default, the "width" argument is the current size of your browser
+  // window when you request a HathiTrust document. If you pass in a very
+  // large size, like 10000 pixels, you'll always receive the largest scan
+  // available (unless, of course, it's greater than 10000 pixels wide).
+  $ch = curl_init("https://babel.hathitrust.org/cgi/imgsrv/image?id=$hathitrust_id;seq=$current_page;width=10000");
+  curl_setopt_array($ch, $curl_default_options);
+  curl_setopt($ch, CURLOPT_FILE, $fh);
   curl_exec($ch);
 
   if (!curl_errno($ch)) {
