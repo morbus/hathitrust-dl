@@ -78,7 +78,12 @@ for ($current_page = 1; $current_page <= $total_pages; $current_page++) {
     continue;
   }
 
-  $fh = fopen($page_filepath, "a");
+  // We save images to a temporary filename first and only move them to .jpg
+  // when we know HathiTrust has responded happily (HTTP status code 200).
+  // This ensures that, for long-running downloads, if the script is canceled
+  // before it's finished, we don't have a half-downloaded .jpg file that is
+  // then skipped over (above) the next time this document is attempted.
+  $fh = fopen($page_filepath . ".download", "a");
 
   if (!$fh) {
     exit("ERROR: Unable to create required $page_filepath file.\n");
@@ -96,12 +101,13 @@ for ($current_page = 1; $current_page <= $total_pages; $current_page++) {
   if (!curl_errno($ch)) {
     switch ($http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE)) {
     case 200:
+      rename($page_filepath . ".download", $page_filepath);
       print "[$current_page/$total_pages] Downloaded image to $page_filepath.\n";
       break;
 
     default:
       print "[$current_page/$total_pages] Unexpected HTTP code ($http_code). Retrying.\n";
-      unlink($page_filepath);
+      unlink($page_filepath . ".download");
       $current_page--;
       break;
     }
